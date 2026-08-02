@@ -116,6 +116,22 @@
   }
   .restore-banner button:hover{color:var(--text);border-color:var(--muted);}
 
+  .storage-warning{
+    display:none;
+    align-items:flex-start;gap:10px;
+    background:rgba(245,185,66,0.08);border:1px solid #5c4a1f;
+    border-radius:var(--radius);padding:12px 16px;margin-top:14px;
+    font-size:13px;line-height:1.5;
+  }
+  .storage-warning i{color:var(--warn);font-size:16px;margin-top:1px;flex-shrink:0;}
+  .storage-warning b{color:var(--text);}
+  .storage-warning .actions{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;}
+  .storage-warning button{
+    background:none;border:1px solid var(--border);color:var(--text);
+    padding:5px 10px;border-radius:6px;cursor:pointer;font-family:var(--sans);font-size:12px;
+  }
+  .storage-warning button:hover{border-color:var(--warn);}
+
   .queue{margin-top:14px;display:flex;flex-direction:column;gap:8px;}
   .queue-item{
     display:flex;align-items:center;gap:10px;
@@ -370,6 +386,17 @@
     <button id="restoreDismiss">Dismiss</button>
   </div>
 
+  <div class="storage-warning" id="storageWarning">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    <div>
+      <div id="storageWarningText"></div>
+      <div class="actions">
+        <button id="copyLinkBtn"><i class="bi bi-clipboard"></i> Copy this page's link</button>
+        <button id="storageWarnDismiss">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
   <div class="queue" id="queue"></div>
 
   <div id="fileFilterBar" class="file-filter" style="display:none;"></div>
@@ -466,9 +493,54 @@ let sourceFiles = new Map(); // filename -> { active: bool }
 let defaultCC = '91'; // default country code used to fix numbers missing a leading '+'
 
 const STORAGE_KEY = 'callEasy_state_v1';
+const STORAGE_TEST_KEY = 'callEasy_probe';
 
 // ---------- persistence (saved in this browser until you clear it) ----------
+// Some mobile setups make localStorage unreliable or unavailable:
+//  - Links opened inside an app's built-in browser (Instagram/Facebook/TikTok/
+//    Messenger "in-app browser") often use a throwaway WebView whose storage
+//    gets wiped when the app is closed or even between page loads.
+//  - Private/incognito mode either blocks storage writes or silently discards
+//    them.
+//  - Some browsers cap or block storage on pages that aren't "installed"/
+//    bookmarked.
+// To handle this we (1) test storage on load rather than assuming it works,
+// (2) fall back to sessionStorage (survives refresh, not tab close) if
+// localStorage is blocked, and (3) warn the person with a concrete next step
+// if neither works, instead of failing silently.
+
+let storageBackend = null; // 'local' | 'session' | null
+let inAppBrowserSuspected = false;
+
+function testBackend(backend) {
+  try {
+    backend.setItem(STORAGE_TEST_KEY, '1');
+    const ok = backend.getItem(STORAGE_TEST_KEY) === '1';
+    backend.removeItem(STORAGE_TEST_KEY);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+function detectStorageBackend() {
+  if (typeof localStorage !== 'undefined' && testBackend(localStorage)) return 'local';
+  if (typeof sessionStorage !== 'undefined' && testBackend(sessionStorage)) return 'session';
+  return null;
+}
+
+function detectInAppBrowser() {
+  const ua = navigator.userAgent || '';
+  return /FBAN|FBAV|Instagram|Line\/|MicroMessenger|TikTok|musical_ly/i.test(ua) || /; wv\)/i.test(ua);
+}
+
+function getStore() {
+  return storageBackend === 'local' ? localStorage : (storageBackend === 'session' ? sessionStorage : null);
+}
+
 function saveState() {
+  const store = getStore();
+  if (!store) return;
   try {
     const state = {
       entries,
@@ -478,16 +550,19 @@ function saveState() {
       idCounter,
       defaultCC
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    store.setItem(STORAGE_KEY, JSON.stringify(state));
     flashSaveIndicator();
   } catch (e) {
     console.error('Failed to save list to this browser:', e);
+    showStorageWarning('Saving failed just now (the browser refused the write). ' + storageWarningTail());
   }
 }
 
 function loadState() {
+  const store = getStore();
+  if (!store) return false;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = store.getItem(STORAGE_KEY);
     if (!raw) return false;
     const state = JSON.parse(raw);
     entries = Array.isArray(state.entries) ? state.entries : [];
@@ -504,7 +579,24 @@ function loadState() {
 }
 
 function clearSavedState() {
-  try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+  const store = getStore();
+  if (!store) return;
+  try { store.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+}
+
+function storageWarningTail() {
+  if (inAppBrowserSuspected) {
+    return 'This looks like it\'s open inside another app\'s built-in browser (e.g. a link opened from Instagram/Facebook/TikTok/Messenger), and those often clear site data between visits. Copy the link below and open it in Chrome or Safari directly instead.';
+  }
+  return 'This can happen in private/incognito mode, or if the browser is set to clear site data automatically. Try opening this page in a normal (non-private) Chrome or Safari tab.';
+}
+
+function showStorageWarning(text) {
+  const box = document.getElementById('storageWarning');
+  const txt = document.getElementById('storageWarningText');
+  if (!box || !txt) return;
+  txt.innerHTML = text;
+  box.style.display = 'flex';
 }
 
 let saveFlashTimer = null;
@@ -564,6 +656,19 @@ try {
   document.getElementById('exportBtn').addEventListener('click', exportXlsx);
   document.getElementById('restoreDismiss').addEventListener('click', () => {
     document.getElementById('restoreBanner').style.display = 'none';
+  });
+  document.getElementById('storageWarnDismiss').addEventListener('click', () => {
+    document.getElementById('storageWarning').style.display = 'none';
+  });
+  document.getElementById('copyLinkBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('copyLinkBtn');
+    try {
+      await navigator.clipboard.writeText(location.href);
+      btn.innerHTML = '<i class="bi bi-check2"></i> Copied';
+      setTimeout(() => { btn.innerHTML = '<i class="bi bi-clipboard"></i> Copy this page\'s link'; }, 1800);
+    } catch (e) {
+      alert(location.href);
+    }
   });
 } catch (e) {
   console.error('Setup failed:', e);
@@ -1079,9 +1184,13 @@ function exportXlsx() {
 }
 
 // ---------- boot ----------
+inAppBrowserSuspected = detectInAppBrowser();
+storageBackend = detectStorageBackend();
+
 const restoredFromStorage = loadState();
 if (ccInput) ccInput.value = defaultCC;
 renderAll();
+
 if (restoredFromStorage) {
   const banner = document.getElementById('restoreBanner');
   const msg = document.getElementById('restoreMsg');
@@ -1090,6 +1199,24 @@ if (restoredFromStorage) {
     banner.style.display = 'flex';
   }
 }
+
+if (storageBackend === null) {
+  showStorageWarning('<b>Your list can\'t be saved on this device.</b> ' + storageWarningTail());
+} else if (storageBackend === 'session') {
+  showStorageWarning('<b>Your list will only be kept until you close this tab</b> — it won\'t survive fully closing the browser. ' + storageWarningTail());
+} else if (inAppBrowserSuspected) {
+  // localStorage worked right now, but in-app WebViews are known to wipe it
+  // between visits even though the initial write/read test succeeds.
+  showStorageWarning('<b>Heads up:</b> this looks like it\'s open inside another app\'s built-in browser. Saving works for now, but these in-app browsers sometimes clear site data between visits. If your list disappears again, open the page in Chrome or Safari directly instead.');
+}
+
+// Extra save points for mobile: phones frequently suspend/kill background
+// tabs without ever firing a normal "close" event, so we save proactively
+// whenever the page is about to go into the background, not just after
+// each edit.
+['visibilitychange', 'pagehide', 'beforeunload'].forEach(evt => {
+  window.addEventListener(evt, () => { if (document.visibilityState !== 'visible') saveState(); });
+});
 </script>
 </body>
 </html>
