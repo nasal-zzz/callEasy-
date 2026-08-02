@@ -64,6 +64,12 @@
   .brand h1{font-size:19px;font-weight:800;margin:0;letter-spacing:-0.02em;}
   .brand h1 span{color:var(--accent);}
   .brand .tag{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:1px;}
+  .topbar-actions{display:flex;align-items:center;gap:10px;}
+  .save-indicator{
+    font-family:var(--mono);font-size:11px;color:var(--muted);
+    display:flex;align-items:center;gap:6px;
+  }
+  .save-indicator i{color:var(--accent);}
 
   .wrap{max-width:1180px;margin:0 auto;padding:28px 32px 80px;}
 
@@ -94,6 +100,21 @@
     font-family:var(--mono);font-size:10.5px;color:var(--muted);
     border:1px solid var(--border);padding:3px 8px;border-radius:20px;
   }
+
+  .restore-banner{
+    display:none;
+    align-items:center;justify-content:space-between;gap:12px;
+    background:rgba(53,214,142,0.08);border:1px solid var(--accent-dim);
+    border-radius:var(--radius);padding:12px 16px;margin-top:14px;
+    font-size:13px;
+  }
+  .restore-banner .msg{display:flex;align-items:center;gap:10px;color:var(--text);}
+  .restore-banner .msg i{color:var(--accent);font-size:16px;}
+  .restore-banner button{
+    background:none;border:1px solid var(--border);color:var(--muted);
+    padding:5px 10px;border-radius:6px;cursor:pointer;font-family:var(--sans);font-size:12px;
+  }
+  .restore-banner button:hover{color:var(--text);border-color:var(--muted);}
 
   .queue{margin-top:14px;display:flex;flex-direction:column;gap:8px;}
   .queue-item{
@@ -171,6 +192,8 @@
     background:none;border:none;outline:none;color:var(--text);
     font-family:var(--sans);font-size:13.5px;width:100%;
   }
+  .cc-box{flex:0 0 160px;min-width:140px;}
+  .cc-box input{font-family:var(--mono);}
   select, .btn{
     font-family:var(--sans);font-size:13.5px;
     background:var(--surface);color:var(--text);
@@ -194,6 +217,8 @@
   tbody tr:last-child td{border-bottom:none;}
   tbody tr:hover{background:rgba(255,255,255,0.02);}
 
+  .phone-cell{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+
   .call-link{
     font-family:var(--mono);font-weight:700;font-size:14px;
     display:inline-flex;align-items:center;gap:8px;
@@ -206,6 +231,19 @@
     width:26px;height:26px;border-radius:50%;
     background:rgba(53,214,142,0.14);color:var(--accent);
     display:flex;align-items:center;justify-content:center;font-size:12.5px;flex-shrink:0;
+  }
+
+  .wa-link{
+    width:26px;height:26px;border-radius:50%;flex-shrink:0;
+    background:rgba(37,211,102,0.14);color:#25D366;
+    display:flex;align-items:center;justify-content:center;font-size:13px;
+    text-decoration:none;border:1px solid transparent;
+    transition:background .15s ease,color .15s ease,border-color .15s ease;
+  }
+  .wa-link:hover{background:#25D366;color:#08110d;border-color:#25D366;}
+
+  .warn-badge{
+    color:var(--warn);font-size:13px;cursor:help;flex-shrink:0;
   }
 
   .src{font-size:11.5px;color:var(--muted);font-family:var(--mono);}
@@ -306,7 +344,10 @@
       <div class="tag">bulk call list, sorted</div>
     </div>
   </div>
-  <button class="btn" id="exportBtn"><i class="bi bi-download"></i> Export</button>
+  <div class="topbar-actions">
+    <span class="save-indicator" id="saveIndicator" style="display:none;"><i class="bi bi-check-circle-fill"></i> saved on this device</span>
+    <button class="btn" id="exportBtn"><i class="bi bi-download"></i> Export</button>
+  </div>
 </div>
 
 <div class="wrap">
@@ -324,6 +365,11 @@
     </p>
   </label>
 
+  <div class="restore-banner" id="restoreBanner">
+    <div class="msg"><i class="bi bi-clock-history"></i><span id="restoreMsg"></span></div>
+    <button id="restoreDismiss">Dismiss</button>
+  </div>
+
   <div class="queue" id="queue"></div>
 
   <div id="fileFilterBar" class="file-filter" style="display:none;"></div>
@@ -335,6 +381,10 @@
       <div class="search-box">
         <i class="bi bi-search"></i>
         <input type="text" id="searchInput" placeholder="Search by number or note...">
+      </div>
+      <div class="search-box cc-box">
+        <i class="bi bi-globe2"></i>
+        <input type="text" id="ccInput" placeholder="Default country code, e.g. 91" title="Used to fix numbers that are missing a leading +">
       </div>
       <select id="statusFilter">
         <option value="all">All statuses</option>
@@ -362,7 +412,7 @@
 
   <div id="tableWrap"></div>
 
-  <footer>callEasy — everything runs in your browser, nothing is uploaded to a server</footer>
+  <footer>callEasy — everything runs in your browser, nothing is uploaded to a server. Your list is saved on this device automatically.</footer>
 </div>
 
 <div class="modal-overlay" id="colModalOverlay" style="display:none;">
@@ -407,19 +457,63 @@ const REMARK = {
 };
 
 // Every entry has this shape:
-// { id, cells: { [columnName]: value }, phoneCols: [columnName,...], status, remark, note }
+// { id, cells: { [columnName]: value }, status, remark, note }
 let entries = [];
 let columnOrder = [];   // ordered list of every known column name (excludes internal 'Source' field)
 let visibleColumns = new Set(); // subset of columnOrder currently shown in the table
 let idCounter = 1;
 let sourceFiles = new Map(); // filename -> { active: bool }
+let defaultCC = '91'; // default country code used to fix numbers missing a leading '+'
 
-function registerSourceFile(filename) {
-  if (!sourceFiles.has(filename)) sourceFiles.set(filename, { active: true });
+const STORAGE_KEY = 'callEasy_state_v1';
+
+// ---------- persistence (saved in this browser until you clear it) ----------
+function saveState() {
+  try {
+    const state = {
+      entries,
+      columnOrder,
+      visibleColumns: [...visibleColumns],
+      sourceFiles: [...sourceFiles.entries()],
+      idCounter,
+      defaultCC
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    flashSaveIndicator();
+  } catch (e) {
+    console.error('Failed to save list to this browser:', e);
+  }
 }
-function isSourceActive(filename) {
-  const s = sourceFiles.get(filename);
-  return !s || s.active !== false;
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const state = JSON.parse(raw);
+    entries = Array.isArray(state.entries) ? state.entries : [];
+    columnOrder = Array.isArray(state.columnOrder) ? state.columnOrder : [];
+    visibleColumns = new Set(state.visibleColumns || []);
+    sourceFiles = new Map(state.sourceFiles || []);
+    idCounter = state.idCounter || (entries.reduce((m, e) => Math.max(m, e.id || 0), 0) + 1);
+    defaultCC = state.defaultCC || '91';
+    return entries.length > 0;
+  } catch (e) {
+    console.error('Failed to restore saved list:', e);
+    return false;
+  }
+}
+
+function clearSavedState() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+}
+
+let saveFlashTimer = null;
+function flashSaveIndicator() {
+  const el = document.getElementById('saveIndicator');
+  if (!el) return;
+  el.style.display = 'inline-flex';
+  clearTimeout(saveFlashTimer);
+  saveFlashTimer = setTimeout(() => { el.style.display = 'none'; }, 1800);
 }
 
 const dropZone = document.getElementById('dropZone');
@@ -431,6 +525,7 @@ const tableWrap = document.getElementById('tableWrap');
 const searchInput = document.getElementById('searchInput');
 const statusFilter = document.getElementById('statusFilter');
 const remarkFilter = document.getElementById('remarkFilter');
+const ccInput = document.getElementById('ccInput');
 
 try {
   dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
@@ -444,6 +539,13 @@ try {
   searchInput.addEventListener('input', renderTable);
   statusFilter.addEventListener('change', renderTable);
   remarkFilter.addEventListener('change', renderTable);
+  ccInput.addEventListener('input', e => {
+    const digits = e.target.value.replace(/\D/g, '');
+    defaultCC = digits || '91';
+    renderTable();
+    renderSummary();
+    saveState();
+  });
   document.getElementById('editColumnsBtn').addEventListener('click', async () => {
     if (!columnOrder.length) return;
     const chosen = await openColumnPicker(columnOrder, [...visibleColumns], 'Editing which columns are visible');
@@ -453,9 +555,16 @@ try {
     }
   });
   document.getElementById('clearAllBtn').addEventListener('click', () => {
-    if (confirm('Clear the whole list?')) { entries = []; columnOrder = []; visibleColumns = new Set(); sourceFiles = new Map(); renderAll(); }
+    if (confirm('Clear the whole list? This also erases the copy saved on this device.')) {
+      entries = []; columnOrder = []; visibleColumns = new Set(); sourceFiles = new Map();
+      clearSavedState();
+      renderAll();
+    }
   });
   document.getElementById('exportBtn').addEventListener('click', exportXlsx);
+  document.getElementById('restoreDismiss').addEventListener('click', () => {
+    document.getElementById('restoreBanner').style.display = 'none';
+  });
 } catch (e) {
   console.error('Setup failed:', e);
   const warn = document.getElementById('jsWarning');
@@ -566,6 +675,54 @@ function isPhoneish(val) {
   return digits.length >= 7 && digits.length <= 15;
 }
 
+// Normalizes a raw phone value into a dialable/WhatsApp-ready number.
+// Fixes the most common mess: a number with a country code but no leading
+// '+' (e.g. an Indian mobile saved as "91XXXXXXXXXX", 12 digits, no '+')
+// used to get treated as garbage. Now it's recognized and normalized to
+// "+91XXXXXXXXXX" automatically, using the default country code set above
+// the table (defaults to 91). Anything that still looks off is flagged
+// with a warning instead of silently being called "wrong".
+function normalizePhone(raw) {
+  const trimmed = String(raw).trim();
+  let hasPlus = trimmed.startsWith('+');
+  let digits = trimmed.replace(/\D/g, '');
+  let warning = null;
+
+  if (!hasPlus && digits.startsWith('00') && digits.length > 10) {
+    digits = digits.slice(2);
+    hasPlus = true;
+  }
+
+  let normalized;
+  if (hasPlus) {
+    normalized = '+' + digits;
+    if (digits.length < 8 || digits.length > 15) {
+      warning = 'Unusual length for an international number — please double-check';
+    }
+  } else if (digits.length === 10) {
+    // Plain 10-digit local number, no country code at all — assume the default
+    normalized = '+' + defaultCC + digits;
+  } else if (digits.length === defaultCC.length + 10 && digits.startsWith(defaultCC)) {
+    // Country code is there but the '+' got stripped somewhere (very common
+    // when numbers come from spreadsheets or OCR) — just add it back
+    normalized = '+' + digits;
+  } else if (digits.length > 10 && digits.length <= 15) {
+    // Longer than a local number, no '+', and doesn't match the default
+    // country code — still usable but worth a second look
+    normalized = '+' + digits;
+    warning = 'No "+" and it doesn\'t match the default country code — please verify';
+  } else {
+    normalized = digits;
+    warning = 'Unusual number length — please verify';
+  }
+
+  return {
+    normalized,
+    digits: normalized.replace(/\D/g, ''),
+    warning
+  };
+}
+
 function detectPhoneColumns(headers, rows) {
   const nameHints = /phone|mobile|contact|whatsapp|\btel\b|cell/i;
   const detected = [];
@@ -648,6 +805,14 @@ function commitFlatNumbers(numbers, filename) {
   });
 }
 
+function registerSourceFile(filename) {
+  if (!sourceFiles.has(filename)) sourceFiles.set(filename, { active: true });
+}
+function isSourceActive(filename) {
+  const s = sourceFiles.get(filename);
+  return !s || s.active !== false;
+}
+
 async function extractFromPdf(file) {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({data: buf}).promise;
@@ -702,12 +867,17 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function escapeJs(str) {
+  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 function renderAll() {
   renderFileFilters();
   renderSummary();
   renderTable();
   toolsBar.style.display = entries.length ? 'block' : 'none';
   summaryBar.style.display = entries.length ? 'flex' : 'none';
+  saveState();
 }
 
 const fileFilterBar = document.getElementById('fileFilterBar');
@@ -741,10 +911,6 @@ function renderFileFilters() {
   `;
 }
 
-function escapeJs(str) {
-  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-}
-
 function toggleSource(name, active) {
   const s = sourceFiles.get(name);
   if (s) s.active = active;
@@ -752,6 +918,7 @@ function toggleSource(name, active) {
   renderTable();
   // Keep checkbox states in sync without a full re-render (avoids losing focus mid-click)
   renderFileFilters();
+  saveState();
 }
 
 function setAllSources(active) {
@@ -770,11 +937,24 @@ function renderSummary() {
   Object.keys(STATUS).forEach(k => counts[k] = 0);
   const visible = entries.filter(e => isSourceActive(e.cells['Source']));
   visible.forEach(e => counts[e.status]++);
+
+  let reviewCount = 0;
+  visible.forEach(e => {
+    Object.keys(e.cells).forEach(c => {
+      if (c === 'Source') return;
+      const v = e.cells[c];
+      if (v && isPhoneish(String(v))) {
+        if (normalizePhone(String(v)).warning) reviewCount++;
+      }
+    });
+  });
+
   summaryBar.innerHTML = `
     <div class="chip"><span class="dot" style="background:${STATUS.notcalled.dot}"></span>Total <b>${visible.length}</b></div>
     ${Object.entries(STATUS).filter(([k])=>k!=='notcalled').map(([k,v]) =>
       `<div class="chip"><span class="dot" style="background:${v.dot}"></span>${v.label} <b>${counts[k]}</b></div>`
     ).join('')}
+    <div class="chip" title="Numbers without a '+' that don't clearly match the default country code"><span class="dot" style="background:var(--warn)"></span>Needs review <b>${reviewCount}</b></div>
   `;
 }
 
@@ -824,10 +1004,20 @@ function renderTable() {
               const raw = e.cells[c];
               const val = raw !== undefined && raw !== null ? String(raw) : '';
               if (val && isPhoneish(val)) {
+                const norm = normalizePhone(val);
+                const warnBadge = norm.warning
+                  ? `<i class="bi bi-exclamation-triangle-fill warn-badge" title="${escapeHtml(norm.warning)}"></i>`
+                  : '';
                 return `<td data-label="${escapeHtml(c)}">
-                  <a class="call-link" href="tel:${val.replace(/\s/g,'')}">
-                    <span class="ico"><i class="bi bi-telephone-outbound-fill"></i></span>${escapeHtml(val)}
-                  </a>
+                  <div class="phone-cell">
+                    <a class="call-link" href="tel:${norm.normalized}" title="Call ${escapeHtml(norm.normalized)}">
+                      <span class="ico"><i class="bi bi-telephone-outbound-fill"></i></span>${escapeHtml(val)}
+                    </a>
+                    <a class="wa-link" href="https://wa.me/${norm.digits}" target="_blank" rel="noopener" title="Open in WhatsApp">
+                      <i class="bi bi-whatsapp"></i>
+                    </a>
+                    ${warnBadge}
+                  </div>
                 </td>`;
               }
               return `<td data-label="${escapeHtml(c)}">${escapeHtml(val)}</td>`;
@@ -864,6 +1054,7 @@ function updateRemark(id, value) {
 function updateNote(id, value) {
   const e = entries.find(e => e.id === id);
   if (e) e.note = value;
+  saveState();
 }
 function deleteEntry(id) {
   entries = entries.filter(e => e.id !== id);
@@ -887,7 +1078,18 @@ function exportXlsx() {
   XLSX.writeFile(wb, 'callEasy-list.xlsx');
 }
 
+// ---------- boot ----------
+const restoredFromStorage = loadState();
+if (ccInput) ccInput.value = defaultCC;
 renderAll();
+if (restoredFromStorage) {
+  const banner = document.getElementById('restoreBanner');
+  const msg = document.getElementById('restoreMsg');
+  if (banner && msg) {
+    msg.textContent = `Restored ${entries.length} saved number${entries.length === 1 ? '' : 's'} from your last visit.`;
+    banner.style.display = 'flex';
+  }
+}
 </script>
 </body>
 </html>
