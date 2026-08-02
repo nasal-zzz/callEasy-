@@ -1,13 +1,893 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>calleasy</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>callEasy — Bulk Call List Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
+
+<style>
+  :root{
+    --bg:#0d1016;
+    --surface:#151922;
+    --surface-2:#1b202b;
+    --border:#262c38;
+    --muted:#7d8798;
+    --text:#e9ecf2;
+    --accent:#35d68e;
+    --accent-dim:#1f7a52;
+    --accent-2:#5b8cff;
+    --danger:#ff6b6b;
+    --warn:#f5b942;
+    --radius:10px;
+    --mono:'Space Mono', monospace;
+    --sans:'Outfit', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(1200px 600px at 100% -10%, rgba(53,214,142,0.06), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    min-height:100vh;
+  }
+  a{color:inherit;}
+
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:22px 32px;
+    border-bottom:1px solid var(--border);
+    position:sticky;
+    top:0;
+    background:rgba(13,16,22,0.9);
+    backdrop-filter:blur(8px);
+    z-index:20;
+  }
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand .mark{
+    width:34px;height:34px;border-radius:9px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    display:flex;align-items:center;justify-content:center;
+    color:#08110d;font-size:18px;
+  }
+  .brand h1{font-size:19px;font-weight:800;margin:0;letter-spacing:-0.02em;}
+  .brand h1 span{color:var(--accent);}
+  .brand .tag{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:1px;}
+
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 32px 80px;}
+
+  .upload-zone{
+    display:block;
+    width:100%;
+    border:1.5px dashed var(--border);
+    border-radius:var(--radius);
+    background:var(--surface);
+    padding:38px 24px;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+    position:relative;
+  }
+  .upload-zone.drag{
+    border-color:var(--accent);
+    background:var(--surface-2);
+  }
+  .upload-zone i{font-size:30px;color:var(--accent);}
+  .upload-zone h3{margin:12px 0 4px;font-size:16px;font-weight:600;}
+  .upload-zone p{margin:0;color:var(--muted);font-size:13px;}
+  .upload-zone input{display:none;}
+  .filetypes{
+    display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px;
+  }
+  .filetypes span{
+    font-family:var(--mono);font-size:10.5px;color:var(--muted);
+    border:1px solid var(--border);padding:3px 8px;border-radius:20px;
+  }
+
+  .queue{margin-top:14px;display:flex;flex-direction:column;gap:8px;}
+  .queue-item{
+    display:flex;align-items:center;gap:10px;
+    background:var(--surface);border:1px solid var(--border);
+    border-radius:8px;padding:9px 12px;font-size:13px;
+  }
+  .queue-item i.bi-file-earmark{color:var(--accent-2);}
+  .queue-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .queue-item .status{font-family:var(--mono);font-size:11px;color:var(--muted);}
+  .queue-item .status.done{color:var(--accent);}
+  .queue-item .status.err{color:var(--danger);}
+  .spinner{
+    width:12px;height:12px;border-radius:50%;
+    border:2px solid var(--border);border-top-color:var(--accent);
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .file-filter{
+    margin-top:16px;display:flex;flex-direction:column;gap:8px;
+  }
+  .file-filter-head{
+    display:flex;align-items:center;justify-content:space-between;
+    font-family:var(--mono);font-size:11px;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.06em;
+  }
+  .file-filter-head .links{display:flex;gap:12px;}
+  .file-filter-head button{
+    background:none;border:none;color:var(--accent-2);cursor:pointer;
+    font-family:var(--mono);font-size:11px;padding:0;text-transform:none;letter-spacing:0;
+  }
+  .file-filter-head button:hover{text-decoration:underline;}
+  .file-chips{display:flex;gap:8px;flex-wrap:wrap;}
+  .file-chip{
+    display:flex;align-items:center;gap:8px;
+    font-family:var(--mono);font-size:12px;
+    border:1px solid var(--border);background:var(--surface);
+    padding:7px 12px;border-radius:20px;color:var(--text);
+    cursor:pointer;user-select:none;transition:opacity .15s ease, border-color .15s ease;
+  }
+  .file-chip input{accent-color:var(--accent);width:14px;height:14px;cursor:pointer;}
+  .file-chip.off{opacity:.4;border-color:var(--border);}
+  .file-chip .count{color:var(--muted);}
+  .file-chip .rm{
+    background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;
+    padding:0 0 0 2px;line-height:1;
+  }
+  .file-chip .rm:hover{color:var(--danger);}
+
+  .summary{
+    display:flex;gap:10px;flex-wrap:wrap;margin:26px 0 18px;
+  }
+  .chip{
+    font-family:var(--mono);font-size:12px;
+    border:1px solid var(--border);background:var(--surface);
+    padding:7px 13px;border-radius:20px;color:var(--muted);
+    display:flex;align-items:center;gap:7px;
+  }
+  .chip b{color:var(--text);font-size:13px;}
+  .dot{width:7px;height:7px;border-radius:50%;}
+
+  .toolbar{
+    display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+    margin-bottom:14px;
+  }
+  .search-box{
+    flex:1;min-width:220px;
+    display:flex;align-items:center;gap:8px;
+    background:var(--surface);border:1px solid var(--border);
+    border-radius:8px;padding:9px 12px;
+  }
+  .search-box i{color:var(--muted);}
+  .search-box input{
+    background:none;border:none;outline:none;color:var(--text);
+    font-family:var(--sans);font-size:13.5px;width:100%;
+  }
+  select, .btn{
+    font-family:var(--sans);font-size:13.5px;
+    background:var(--surface);color:var(--text);
+    border:1px solid var(--border);border-radius:8px;
+    padding:9px 12px;cursor:pointer;outline:none;
+  }
+  select:focus, .btn:focus, input:focus{border-color:var(--accent-2);}
+  .btn{display:flex;align-items:center;gap:7px;font-weight:500;}
+  .btn:hover{background:var(--surface-2);}
+  .btn.primary{background:var(--accent);color:#08110d;border-color:var(--accent);font-weight:600;}
+  .btn.primary:hover{background:#2ec481;}
+  .btn.ghost{color:var(--muted);}
+
+  table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+  thead th{
+    text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);font-weight:600;padding:12px 14px;border-bottom:1px solid var(--border);
+    background:var(--surface-2);
+  }
+  tbody td{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13.5px;vertical-align:middle;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:rgba(255,255,255,0.02);}
+
+  .call-link{
+    font-family:var(--mono);font-weight:700;font-size:14px;
+    display:inline-flex;align-items:center;gap:8px;
+    color:var(--text);text-decoration:none;
+    padding:5px 10px 5px 6px;border-radius:7px;
+    border:1px solid transparent;
+  }
+  .call-link:hover{border-color:var(--accent-dim);background:rgba(53,214,142,0.08);}
+  .call-link .ico{
+    width:26px;height:26px;border-radius:50%;
+    background:rgba(53,214,142,0.14);color:var(--accent);
+    display:flex;align-items:center;justify-content:center;font-size:12.5px;flex-shrink:0;
+  }
+
+  .src{font-size:11.5px;color:var(--muted);font-family:var(--mono);}
+
+  .status-select{
+    font-family:var(--sans);font-size:12.5px;font-weight:600;
+    padding:6px 10px;border-radius:20px;border:1px solid var(--border);
+    background:var(--surface-2);cursor:pointer;
+  }
+  .status-select.st-notcalled{color:var(--muted);}
+  .status-select.st-connected{color:var(--accent);border-color:var(--accent-dim);}
+  .status-select.st-switchoff{color:var(--warn);border-color:#5c4a1f;}
+  .status-select.st-noanswer{color:var(--accent-2);border-color:#2a3d70;}
+  .status-select.st-busy{color:#c98cf0;border-color:#4a2f5c;}
+  .status-select.st-invalid{color:var(--danger);border-color:#5c2626;}
+
+  .remark-select{
+    font-family:var(--sans);font-size:12.5px;font-weight:600;
+    padding:6px 10px;border-radius:20px;border:1px solid var(--border);
+    background:var(--surface-2);cursor:pointer;
+  }
+  .remark-select.rm-none{color:var(--muted);}
+  .remark-select.rm-interested{color:var(--accent);border-color:var(--accent-dim);}
+  .remark-select.rm-notinterested{color:var(--danger);border-color:#5c2626;}
+  .remark-select.rm-callback{color:var(--accent-2);border-color:#2a3d70;}
+  .remark-select.rm-wrongnumber{color:var(--warn);border-color:#5c4a1f;}
+  .remark-select.rm-donotcall{color:var(--danger);border-color:#5c2626;}
+  .remark-select.rm-followup{color:#c98cf0;border-color:#4a2f5c;}
+
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(6,8,12,0.72);
+    display:flex;align-items:center;justify-content:center;
+    z-index:100;padding:20px;backdrop-filter:blur(2px);
+  }
+  .modal{
+    background:var(--surface);border:1px solid var(--border);
+    border-radius:14px;padding:26px;max-width:460px;width:100%;
+    max-height:80vh;display:flex;flex-direction:column;
+  }
+  .modal h3{margin:0 0 4px;font-size:17px;display:flex;align-items:center;gap:8px;}
+  .modal h3 i{color:var(--accent);}
+  .modal-sub{margin:0 0 16px;color:var(--muted);font-family:var(--mono);font-size:12px;}
+  .modal-col-list{
+    overflow-y:auto;display:flex;flex-direction:column;gap:4px;
+    border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-2);
+  }
+  .modal-col-row{
+    display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:6px;
+    font-size:13.5px;cursor:pointer;
+  }
+  .modal-col-row:hover{background:rgba(255,255,255,0.03);}
+  .modal-col-row input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer;}
+  .modal-hint{color:var(--muted);font-size:11.5px;margin:12px 0 0;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
+
+  .note-input{
+    width:100%;background:transparent;border:1px solid transparent;
+    color:var(--text);font-family:var(--sans);font-size:12.5px;
+    padding:5px 7px;border-radius:6px;outline:none;
+  }
+  .note-input:hover, .note-input:focus{border-color:var(--border);background:var(--surface-2);}
+
+  .row-del{
+    background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;
+    padding:4px;border-radius:6px;
+  }
+  .row-del:hover{color:var(--danger);background:rgba(255,107,107,0.1);}
+
+  .empty{
+    text-align:center;padding:60px 20px;color:var(--muted);
+  }
+  .empty i{font-size:26px;color:var(--border);}
+  .empty p{margin:10px 0 0;font-size:13.5px;}
+
+  footer{
+    text-align:center;color:var(--muted);font-size:11.5px;
+    font-family:var(--mono);padding:30px 0 10px;
+  }
+
+  @media (max-width:720px){
+    .wrap{padding:20px 16px 60px;}
+    .topbar{padding:16px 18px;}
+    table, thead, tbody, tr, td{display:block;}
+    thead{display:none;}
+    tbody tr{border-bottom:1px solid var(--border);padding:10px 12px;}
+    tbody td{border-bottom:none;padding:6px 0;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+    tbody td::before{content:attr(data-label);color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;font-family:var(--mono);}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <div class="mark"><i class="bi bi-telephone-fill"></i></div>
+    <div>
+      <h1>call<span>Easy</span></h1>
+      <div class="tag">bulk call list, sorted</div>
+    </div>
+  </div>
+  <button class="btn" id="exportBtn"><i class="bi bi-download"></i> Export</button>
+</div>
+
+<div class="wrap">
+
+  <label class="upload-zone" id="dropZone" for="fileInput">
+    <input type="file" id="fileInput" multiple accept=".csv,.xlsx,.xls,.pdf,.docx,.doc,.txt,.png,.jpg,.jpeg,.webp">
+    <i class="bi bi-cloud-arrow-up"></i>
+    <h3>Drop files here or click to upload</h3>
+    <p>Numbers are pulled out automatically from tables, text, or photos of lists</p>
+    <div class="filetypes">
+      <span>.XLSX / .CSV</span><span>.PDF</span><span>.DOCX</span><span>.TXT</span><span>Photos (OCR)</span>
+    </div>
+    <p id="jsWarning" style="display:none;color:var(--danger);margin-top:14px;font-family:var(--mono);font-size:11.5px;">
+      Something failed to load — try refreshing the page (see console for details).
+    </p>
+  </label>
+
+  <div class="queue" id="queue"></div>
+
+  <div id="fileFilterBar" class="file-filter" style="display:none;"></div>
+
+  <div id="summaryBar" class="summary" style="display:none;"></div>
+
+  <div id="toolsBar" style="display:none;">
+    <div class="toolbar">
+      <div class="search-box">
+        <i class="bi bi-search"></i>
+        <input type="text" id="searchInput" placeholder="Search by number or note...">
+      </div>
+      <select id="statusFilter">
+        <option value="all">All statuses</option>
+        <option value="notcalled">Not called</option>
+        <option value="connected">Connected</option>
+        <option value="switchoff">Switched off</option>
+        <option value="noanswer">No answer</option>
+        <option value="busy">Busy / no incoming</option>
+        <option value="invalid">Invalid number</option>
+      </select>
+      <select id="remarkFilter">
+        <option value="all">All remarks</option>
+        <option value="none">No remark</option>
+        <option value="interested">Interested</option>
+        <option value="notinterested">Not interested</option>
+        <option value="callback">Call back later</option>
+        <option value="wrongnumber">Wrong number</option>
+        <option value="donotcall">Do not call</option>
+        <option value="followup">Follow up</option>
+      </select>
+      <button class="btn ghost" id="editColumnsBtn"><i class="bi bi-sliders"></i> Edit columns</button>
+      <button class="btn ghost" id="clearAllBtn"><i class="bi bi-trash3"></i> Clear all</button>
+    </div>
+  </div>
+
+  <div id="tableWrap"></div>
+
+  <footer>callEasy — everything runs in your browser, nothing is uploaded to a server</footer>
+</div>
+
+<div class="modal-overlay" id="colModalOverlay" style="display:none;">
+  <div class="modal">
+    <h3><i class="bi bi-columns-gap"></i> Which columns do you want to include?</h3>
+    <p class="modal-sub" id="modalFileName"></p>
+    <div class="modal-col-list" id="modalColumnList"></div>
+    <p class="modal-hint">Phone-number-looking columns are pre-checked and become tap-to-call. Uncheck a column to leave it out of your list entirely — you can check any other column too.</p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="modalCancelBtn">Skip this file</button>
+      <button class="btn primary" id="modalConfirmBtn">Add to list</button>
+    </div>
+  </div>
+</div>
+
+<script>
+try {
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+} catch (e) {
+  console.error('pdf.js failed to initialize:', e);
+}
+
+const STATUS = {
+  notcalled: {label:'Not called', dot:'#7d8798'},
+  connected: {label:'Connected', dot:'#35d68e'},
+  switchoff: {label:'Switched off', dot:'#f5b942'},
+  noanswer:  {label:'No answer', dot:'#5b8cff'},
+  busy:      {label:'Busy / no incoming', dot:'#c98cf0'},
+  invalid:   {label:'Invalid number', dot:'#ff6b6b'},
+};
+
+const REMARK = {
+  none:          {label:'No remark'},
+  interested:    {label:'Interested'},
+  notinterested: {label:'Not interested'},
+  callback:      {label:'Call back later'},
+  wrongnumber:   {label:'Wrong number'},
+  donotcall:     {label:'Do not call'},
+  followup:      {label:'Follow up'},
+};
+
+// Every entry has this shape:
+// { id, cells: { [columnName]: value }, phoneCols: [columnName,...], status, remark, note }
+let entries = [];
+let columnOrder = [];   // ordered list of every known column name (excludes internal 'Source' field)
+let visibleColumns = new Set(); // subset of columnOrder currently shown in the table
+let idCounter = 1;
+let sourceFiles = new Map(); // filename -> { active: bool }
+
+function registerSourceFile(filename) {
+  if (!sourceFiles.has(filename)) sourceFiles.set(filename, { active: true });
+}
+function isSourceActive(filename) {
+  const s = sourceFiles.get(filename);
+  return !s || s.active !== false;
+}
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const queueEl = document.getElementById('queue');
+const summaryBar = document.getElementById('summaryBar');
+const toolsBar = document.getElementById('toolsBar');
+const tableWrap = document.getElementById('tableWrap');
+const searchInput = document.getElementById('searchInput');
+const statusFilter = document.getElementById('statusFilter');
+const remarkFilter = document.getElementById('remarkFilter');
+
+try {
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag');
+    handleFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', e => handleFiles(e.target.files));
+  searchInput.addEventListener('input', renderTable);
+  statusFilter.addEventListener('change', renderTable);
+  remarkFilter.addEventListener('change', renderTable);
+  document.getElementById('editColumnsBtn').addEventListener('click', async () => {
+    if (!columnOrder.length) return;
+    const chosen = await openColumnPicker(columnOrder, [...visibleColumns], 'Editing which columns are visible');
+    if (chosen) {
+      visibleColumns = new Set(chosen);
+      renderAll();
+    }
+  });
+  document.getElementById('clearAllBtn').addEventListener('click', () => {
+    if (confirm('Clear the whole list?')) { entries = []; columnOrder = []; visibleColumns = new Set(); sourceFiles = new Map(); renderAll(); }
+  });
+  document.getElementById('exportBtn').addEventListener('click', exportXlsx);
+} catch (e) {
+  console.error('Setup failed:', e);
+  const warn = document.getElementById('jsWarning');
+  if (warn) warn.style.display = 'block';
+}
+
+function handleFiles(fileList) {
+  [...fileList].forEach(processFile);
+}
+
+function addQueueItem(name) {
+  const row = document.createElement('div');
+  row.className = 'queue-item';
+  row.innerHTML = `<i class="bi bi-file-earmark"></i><span class="name">${escapeHtml(name)}</span><span class="status"><span class="spinner"></span></span>`;
+  queueEl.appendChild(row);
+  return row;
+}
+function setQueueDone(row, count) {
+  row.querySelector('.status').innerHTML = `<span class="status done">${count} found</span>`;
+}
+function setQueueErr(row, msg) {
+  row.querySelector('.status').innerHTML = `<span class="status err">${escapeHtml(msg)}</span>`;
+}
+
+async function processFile(file) {
+  const row = addQueueItem(file.name);
+  try {
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    if (['xlsx','xls','csv'].includes(ext)) {
+      if (typeof XLSX === 'undefined') { setQueueErr(row, 'spreadsheet library did not load'); return; }
+      const parsed = await extractFromSpreadsheet(file);
+      if (!parsed.headers.length) { setQueueErr(row, 'no data found'); return; }
+      const detected = detectPhoneColumns(parsed.headers, parsed.rows);
+      row.querySelector('.status').innerHTML = `<span class="status">choose columns…</span>`;
+      const chosen = await openColumnPicker(parsed.headers, detected, file.name);
+      if (!chosen || !chosen.length) { setQueueErr(row, 'skipped'); return; }
+      const count = commitStructuredRows(parsed.headers, parsed.rows, chosen, file.name);
+      setQueueDone(row, count);
+      renderAll();
+      return;
+    }
+
+    let text = '';
+    if (ext === 'pdf') {
+      if (typeof pdfjsLib === 'undefined') { setQueueErr(row, 'PDF library did not load'); return; }
+      text = await extractFromPdf(file);
+    } else if (['docx','doc'].includes(ext)) {
+      if (typeof mammoth === 'undefined') { setQueueErr(row, 'docx library did not load'); return; }
+      text = await extractFromDocx(file);
+    } else if (ext === 'txt') {
+      text = await file.text();
+    } else if (['png','jpg','jpeg','webp'].includes(ext)) {
+      if (typeof Tesseract === 'undefined') { setQueueErr(row, 'OCR library did not load'); return; }
+      text = await extractFromImage(file, row);
+    } else {
+      setQueueErr(row, 'unsupported file type');
+      return;
+    }
+
+    const numbers = extractPhoneNumbers(text);
+    commitFlatNumbers(numbers, file.name);
+    setQueueDone(row, numbers.length);
+    renderAll();
+  } catch (err) {
+    console.error(err);
+    setQueueErr(row, (err && err.message) ? err.message : 'failed to read file');
+  }
+}
+
+function extractFromSpreadsheet(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(sheet, {header:1, raw:true, defval:''});
+        if (!json.length) { resolve({headers:[], rows:[]}); return; }
+        const headers = json[0].map((h, i) => (h === '' || h === null || h === undefined) ? `Column ${i+1}` : String(h).trim());
+        const rows = json.slice(1)
+          .filter(r => r.some(c => c !== '' && c !== null && c !== undefined))
+          .map(r => headers.map((_, i) => formatCellValue(r[i])));
+        resolve({headers, rows});
+      } catch(err){ reject(err); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// Avoids SheetJS's default "General" number formatting, which renders long
+// numbers (like phone numbers stored as numeric cells) as scientific notation.
+function formatCellValue(v) {
+  if (v === undefined || v === null) return '';
+  if (v instanceof Date) {
+    const dd = String(v.getDate()).padStart(2,'0');
+    const mm = String(v.getMonth()+1).padStart(2,'0');
+    return `${dd}/${mm}/${v.getFullYear()}`;
+  }
+  if (typeof v === 'number') return String(v);
+  return String(v).trim();
+}
+
+function isPhoneish(val) {
+  if (val === undefined || val === null || val === '') return false;
+  const digits = String(val).replace(/\D/g, '');
+  return digits.length >= 7 && digits.length <= 15;
+}
+
+function detectPhoneColumns(headers, rows) {
+  const nameHints = /phone|mobile|contact|whatsapp|\btel\b|cell/i;
+  const detected = [];
+  headers.forEach((h, i) => {
+    const sample = rows.slice(0, 30).map(r => r[i]).filter(v => v !== '');
+    if (!sample.length) return;
+    const hits = sample.filter(v => {
+      const digits = String(v).replace(/\D/g, '');
+      return digits.length >= 7 && digits.length <= 15;
+    }).length;
+    const ratio = hits / sample.length;
+    if (ratio >= 0.6 || (nameHints.test(h) && ratio >= 0.3)) detected.push(h);
+  });
+  return detected;
+}
+
+function openColumnPicker(headers, checkedList, subtitle) {
+  return new Promise(resolve => {
+    const checkedSet = new Set(checkedList);
+    document.getElementById('modalFileName').textContent = subtitle;
+    const list = document.getElementById('modalColumnList');
+    list.innerHTML = headers.map((h, i) => `
+      <label class="modal-col-row">
+        <input type="checkbox" value="${i}" ${checkedSet.has(h) ? 'checked' : ''}>
+        <span>${escapeHtml(h)}</span>
+      </label>
+    `).join('');
+    const overlay = document.getElementById('colModalOverlay');
+    const confirmBtn = document.getElementById('modalConfirmBtn');
+    const cancelBtn = document.getElementById('modalCancelBtn');
+    overlay.style.display = 'flex';
+
+    function cleanup(result) {
+      overlay.style.display = 'none';
+      confirmBtn.removeEventListener('click', onConfirm);
+      cancelBtn.removeEventListener('click', onCancel);
+      resolve(result);
+    }
+    function onConfirm() {
+      const checked = [...list.querySelectorAll('input[type=checkbox]:checked')].map(cb => headers[parseInt(cb.value, 10)]);
+      cleanup(checked);
+    }
+    function onCancel() { cleanup(null); }
+
+    confirmBtn.addEventListener('click', onConfirm);
+    cancelBtn.addEventListener('click', onCancel);
+  });
+}
+
+function commitStructuredRows(headers, rows, chosenCols, filename) {
+  registerSourceFile(filename);
+  // All headers are kept in columnOrder/cells so no data is lost — chosenCols only
+  // decides which columns start out visible. Visibility can be changed later
+  // via "Edit columns" without needing to re-upload the file.
+  headers.forEach(h => { if (!columnOrder.includes(h)) columnOrder.push(h); });
+  chosenCols.forEach(h => visibleColumns.add(h));
+  let count = 0;
+  rows.forEach(r => {
+    const cells = {};
+    headers.forEach((h, i) => { cells[h] = r[i] !== undefined ? r[i] : ''; });
+    cells['Source'] = filename;
+    entries.push({ id: idCounter++, cells, status: 'notcalled', remark: 'none', note: '' });
+    count++;
+  });
+  return count;
+}
+
+function commitFlatNumbers(numbers, filename) {
+  registerSourceFile(filename);
+  if (!columnOrder.includes('Phone Number')) columnOrder.unshift('Phone Number');
+  visibleColumns.add('Phone Number');
+  numbers.forEach(n => {
+    entries.push({
+      id: idCounter++,
+      cells: {'Phone Number': n, 'Source': filename},
+      status: 'notcalled',
+      remark: 'none',
+      note: ''
+    });
+  });
+}
+
+async function extractFromPdf(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data: buf}).promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(it => it.str).join(' ') + '\n';
+  }
+  return text;
+}
+
+async function extractFromDocx(file) {
+  const buf = await file.arrayBuffer();
+  const result = await mammoth.extractRawText({arrayBuffer: buf});
+  return result.value;
+}
+
+async function extractFromImage(file, row) {
+  const { data } = await Tesseract.recognize(file, 'eng', {
+    logger: m => {
+      if (m.status === 'recognizing text') {
+        const pct = Math.round(m.progress * 100);
+        row.querySelector('.status').innerHTML = `<span class="status">reading ${pct}%</span>`;
+      }
+    }
+  });
+  return data.text;
+}
+
+function extractPhoneNumbers(text) {
+  if (!text) return [];
+  const regex = /(\+?\d[\d\-\s\.\(\)]{6,18}\d)/g;
+  const matches = text.match(regex) || [];
+  const seen = new Set();
+  const results = [];
+  matches.forEach(raw => {
+    const trimmed = raw.trim().replace(/\s{2,}/g, ' ');
+    const digits = trimmed.replace(/\D/g, '');
+    if (digits.length < 7 || digits.length > 15) return;
+    const key = digits;
+    if (seen.has(key)) return;
+    seen.add(key);
+    results.push(trimmed);
+  });
+  return results;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function renderAll() {
+  renderFileFilters();
+  renderSummary();
+  renderTable();
+  toolsBar.style.display = entries.length ? 'block' : 'none';
+  summaryBar.style.display = entries.length ? 'flex' : 'none';
+}
+
+const fileFilterBar = document.getElementById('fileFilterBar');
+
+function renderFileFilters() {
+  if (!sourceFiles.size) { fileFilterBar.style.display = 'none'; fileFilterBar.innerHTML = ''; return; }
+  fileFilterBar.style.display = 'flex';
+  const counts = {};
+  entries.forEach(e => {
+    const src = e.cells['Source'];
+    counts[src] = (counts[src] || 0) + 1;
+  });
+  fileFilterBar.innerHTML = `
+    <div class="file-filter-head">
+      <span>Uploaded files (uncheck to hide from the list below)</span>
+      <div class="links">
+        <button type="button" onclick="setAllSources(true)">Select all</button>
+        <button type="button" onclick="setAllSources(false)">Deselect all</button>
+      </div>
+    </div>
+    <div class="file-chips">
+      ${[...sourceFiles.entries()].map(([name, s]) => `
+        <label class="file-chip ${s.active ? '' : 'off'}">
+          <input type="checkbox" ${s.active ? 'checked' : ''} onchange="toggleSource('${escapeJs(name)}', this.checked)">
+          <span>${escapeHtml(name)}</span>
+          <span class="count">${counts[name] || 0}</span>
+          <button type="button" class="rm" title="Remove this file's entries" onclick="event.stopPropagation(); removeSourceFile('${escapeJs(name)}')"><i class="bi bi-x-lg"></i></button>
+        </label>
+      `).join('')}
+    </div>
+  `;
+}
+
+function escapeJs(str) {
+  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function toggleSource(name, active) {
+  const s = sourceFiles.get(name);
+  if (s) s.active = active;
+  renderSummary();
+  renderTable();
+  // Keep checkbox states in sync without a full re-render (avoids losing focus mid-click)
+  renderFileFilters();
+}
+
+function setAllSources(active) {
+  sourceFiles.forEach(s => { s.active = active; });
+  renderAll();
+}
+
+function removeSourceFile(name) {
+  entries = entries.filter(e => e.cells['Source'] !== name);
+  sourceFiles.delete(name);
+  renderAll();
+}
+
+function renderSummary() {
+  const counts = {};
+  Object.keys(STATUS).forEach(k => counts[k] = 0);
+  const visible = entries.filter(e => isSourceActive(e.cells['Source']));
+  visible.forEach(e => counts[e.status]++);
+  summaryBar.innerHTML = `
+    <div class="chip"><span class="dot" style="background:${STATUS.notcalled.dot}"></span>Total <b>${visible.length}</b></div>
+    ${Object.entries(STATUS).filter(([k])=>k!=='notcalled').map(([k,v]) =>
+      `<div class="chip"><span class="dot" style="background:${v.dot}"></span>${v.label} <b>${counts[k]}</b></div>`
+    ).join('')}
+  `;
+}
+
+function renderTable() {
+  const q = searchInput.value.trim().toLowerCase();
+  const statusF = statusFilter.value;
+  const remarkF = remarkFilter.value;
+
+  let rows = entries.filter(e => {
+    const matchesSource = isSourceActive(e.cells['Source']);
+    const matchesQ = !q
+      || Object.values(e.cells).some(v => String(v).toLowerCase().includes(q))
+      || (e.note && e.note.toLowerCase().includes(q));
+    const matchesS = statusF === 'all' || e.status === statusF;
+    const matchesR = remarkF === 'all' || e.remark === remarkF;
+    return matchesSource && matchesQ && matchesS && matchesR;
+  });
+
+  if (!entries.length) {
+    tableWrap.innerHTML = `<div class="empty"><i class="bi bi-inbox"></i><p>Upload a file above to pull out phone numbers</p></div>`;
+    return;
+  }
+  if (!rows.length) {
+    tableWrap.innerHTML = `<div class="empty"><i class="bi bi-search"></i><p>No numbers match your search or filter</p></div>`;
+    return;
+  }
+
+  const cols = columnOrder.filter(c => visibleColumns.has(c));
+
+  tableWrap.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th style="width:34px">#</th>
+          ${cols.map(c => `<th>${escapeHtml(c)}</th>`).join('')}
+          <th style="width:190px">Call status</th>
+          <th style="width:170px">Remark</th>
+          <th>Note</th>
+          <th style="width:36px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((e, i) => `
+          <tr>
+            <td data-label="#">${i+1}</td>
+            ${cols.map(c => {
+              const raw = e.cells[c];
+              const val = raw !== undefined && raw !== null ? String(raw) : '';
+              if (val && isPhoneish(val)) {
+                return `<td data-label="${escapeHtml(c)}">
+                  <a class="call-link" href="tel:${val.replace(/\s/g,'')}">
+                    <span class="ico"><i class="bi bi-telephone-outbound-fill"></i></span>${escapeHtml(val)}
+                  </a>
+                </td>`;
+              }
+              return `<td data-label="${escapeHtml(c)}">${escapeHtml(val)}</td>`;
+            }).join('')}
+            <td data-label="Status">
+              <select class="status-select st-${e.status}" onchange="updateStatus(${e.id}, this.value)">
+                ${Object.entries(STATUS).map(([k,v]) => `<option value="${k}" ${e.status===k?'selected':''}>${v.label}</option>`).join('')}
+              </select>
+            </td>
+            <td data-label="Remark">
+              <select class="remark-select rm-${e.remark}" onchange="updateRemark(${e.id}, this.value)">
+                ${Object.entries(REMARK).map(([k,v]) => `<option value="${k}" ${e.remark===k?'selected':''}>${v.label}</option>`).join('')}
+              </select>
+            </td>
+            <td data-label="Note"><input class="note-input" placeholder="add note..." value="${escapeHtml(e.note || '')}" onchange="updateNote(${e.id}, this.value)"></td>
+            <td><button class="row-del" onclick="deleteEntry(${e.id})"><i class="bi bi-x-lg"></i></button></td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function updateStatus(id, value) {
+  const e = entries.find(e => e.id === id);
+  if (e) e.status = value;
+  renderAll();
+}
+function updateRemark(id, value) {
+  const e = entries.find(e => e.id === id);
+  if (e) e.remark = value;
+  renderAll();
+}
+function updateNote(id, value) {
+  const e = entries.find(e => e.id === id);
+  if (e) e.note = value;
+}
+function deleteEntry(id) {
+  entries = entries.filter(e => e.id !== id);
+  renderAll();
+}
+
+function exportXlsx() {
+  const visible = entries.filter(e => isSourceActive(e.cells['Source']));
+  if (!visible.length) { alert('Nothing to export — check that at least one uploaded file is selected.'); return; }
+  const data = visible.map((e, i) => {
+    const row = { '#': i + 1 };
+    columnOrder.forEach(c => { row[c] = e.cells[c] !== undefined ? e.cells[c] : ''; });
+    row['Call Status'] = STATUS[e.status].label;
+    row['Remark'] = REMARK[e.remark].label;
+    row['Note'] = e.note || '';
+    return row;
+  });
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Call List');
+  XLSX.writeFile(wb, 'callEasy-list.xlsx');
+}
+
+renderAll();
+</script>
+</body>
 </html>
